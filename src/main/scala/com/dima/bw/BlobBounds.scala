@@ -5,11 +5,12 @@ import java.io.File
 object BlobBounds {
   def main(args: Array[String]): Unit = {
 
-    //val file = new File("src/test/resources/blob1.txt")
+   // val file = new File("src/test/resources/blob1.txt")
 
-    //val grid = GridGen.fromFile(file)
+   // val grid = GridGen.fromFile(file)
+    val size=10
 
-    val grid = GridGen.random(10)
+    val grid = GridGen.random(size)
 
     println("Naive: "+naive(grid))
 
@@ -30,9 +31,9 @@ object BlobBounds {
 
     val reads = grid.data.length
     val coords = {
-      for{i<-0 to grid.size;j<-0 to grid.size}
+      for{i<-0 until grid.size;j<-0 until grid.size}
       yield Coord(i,j)}
-      .toList
+      .filter(grid(_)).toList
 
     val b2: Boundary = b1.update(coords,grid)
 
@@ -47,13 +48,13 @@ object BlobBounds {
         case Nil =>
           (boundary, visited.size)
         case head :: tail => {
-          val moves = grid.getNextMoves(head)
+          val moves = grid.getMoves(head)
           val validMoves = moves.filterNot(c=>visited.contains(c))
           val pathMoves = validMoves.filter(m=>grid(m))
           walk(
             tail++pathMoves,
             visited ++ validMoves.map(m=>(m,grid(m))),
-            boundary.update(validMoves,grid))
+            boundary.update(pathMoves,grid))
         }
       }
     }
@@ -80,12 +81,16 @@ case class Boundary(left: Int, top: Int, right: Int, bottom: Int) {
   }*/
 
   def update(coords: List[Coord], grid: Grid): Boundary = {
-    val l = Math.min(left, coords.map(_.x).min)
-    val r = Math.max(right, coords.map(_.x).max)
-    val t = Math.min(top, coords.map(_.y).min)
-    val b = Math.max(bottom, coords.map(_.y).max)
+    if(coords.isEmpty)
+      this
+    else {
+      val l = Math.min(left, coords.map(_.x).min)
+      val r = Math.max(right, coords.map(_.x).max)
+      val t = Math.min(top, coords.map(_.y).min)
+      val b = Math.max(bottom, coords.map(_.y).max)
 
-    Boundary(l,t,r,b)
+      Boundary(l, t, r, b)
+    }
   }
 }
 
@@ -105,7 +110,10 @@ case class Grid(size: Int) {
   def up(p: Coord) = Coord(p.y-1,p.x)
 
   def valid(p: Coord): Boolean =
-    !(p.x < 0 || p.y < 0 || p.x >= size || p.y >= size)
+    p.x >= 0 &&
+      p.y >= 0 &&
+      p.x < size &&
+      p.y < size
 
   case class FirstMove(initial: Coord, visited: Map[Coord,Boolean], boundary: Boundary)
 
@@ -124,7 +132,7 @@ case class Grid(size: Int) {
       ))
   }
 
-  def getNextMoves(p: Coord): List[Coord] =
+  def getMoves(p: Coord): List[Coord] =
     List(left(p),right(p),up(p),down(p)).filter(valid)
 
   override def toString = {
@@ -132,9 +140,10 @@ case class Grid(size: Int) {
 
     for(i<-0 until size) {
       for(j<-0 until size) {
-        var k = "0"
-        if(this(Coord(i,j)))k="1"
-        b.append(k)
+        if(this(Coord(i,j)))
+          b.append("1")
+        else
+          b.append("0")
       }
       b.append("\n")
     }
@@ -160,17 +169,20 @@ case object GridGen {
   }
 
   def random(size: Int): Grid = {
-    val current = Math.abs(scala.util.Random.nextInt())%(size*size)
-    val moves = Math.abs(scala.util.Random.nextInt())%(size*size)
-    var points: List[Coord] = Nil
     val grid: Grid = new Grid(size)
 
-    for(i<-0 until moves) {
-      val nextMoves = grid.getNextMoves(grid.getCoord(current))
-      points = nextMoves(  Math.abs(scala.util.Random.nextInt()) % nextMoves.size  ) :: points
+    var current = grid.getCoord(Math.abs(scala.util.Random.nextInt())%(size*size))
+    val numMoves = Math.abs(scala.util.Random.nextInt())%(size*size)
+    var points: List[Coord] = Nil
+
+
+    for(i<-0 until numMoves) {
+      val moves = grid.getMoves(current)
+      val index = Math.abs(scala.util.Random.nextInt()) % moves.size
+      grid.set(current)
+      current = moves(index)
     }
 
-    points.foreach(coord=>grid.set(coord))
     grid
   }
 }
