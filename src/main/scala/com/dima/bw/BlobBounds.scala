@@ -13,120 +13,119 @@ object BlobBounds {
 
     println("Naive: "+naive(grid))
 
-    var ave = 0;
+    var ave = 0
     for(i<-0 until 100) {
-      val list = walk(grid)
-      ave+=list(0)
+      val list = breadth(grid)
+      ave+=list.head
     }
 
-    println("Breadth: "+walk(grid) + " Average="+ave/100)
+    println("Breadth: "+breadth(grid) + " Average="+ave/100)
 
     println(grid)
     //println(GridGen.random(10))
   }
 
   def naive(grid: Grid): List[Int] = {
-    var right,bottom = -1
-    var left,top = 10
-    val reads = 100
-    for(i<-0 to 9;j<-0 to 9) {
-      if(grid(i,j)) {
-        if(i<top)
-          top = i
-        if(i>bottom)
-          bottom=i
-        if(j<left)
-          left=j
-        if(j>right)
-          right=j
-      }
-    }
+    val b1: Boundary = new Boundary()
 
-    List(reads,top,left,bottom,right)
+    val reads = grid.data.length
+    val coords = {
+      for{i<-0 to grid.size;j<-0 to grid.size}
+      yield Coord(i,j)}
+      .toList
+
+    val b2: Boundary = b1.update(coords,grid)
+
+    List(reads,b2.top,b2.left,b2.bottom,b2.right)
   }
 
-  def walk(grid: Grid): List[Int] = {
-    val firstMove = grid.findFirst()
+  def breadth(grid: Grid): List[Int] = {
+    val firstMoveOpt = grid.findFirst()
 
-    val x = firstMove.initial(0)%grid.size
-    val y = firstMove.initial(0)/grid.size
-
-    def walk(queue: List[Int], visited: Map[Int,Boolean], boundary: Boundary): (Boundary,Map[Int,Boolean]) = {
+    def walk(queue: List[Coord], visited: Map[Coord,Boolean], boundary: Boundary): (Boundary,Int) = {
       queue match {
-        case Nil => {
-          (boundary, visited)
-        }
+        case Nil =>
+          (boundary, visited.size)
         case head :: tail => {
-          val moves = grid.getNextMoves(head, visited, boundary)
-
-          walk(tail++(moves._1.filter(_.valid).map(_.index)), (visited ++ moves._1.map(p=>(p.index,p.valid))), moves._2)
+          val moves = grid.getNextMoves(head)
+          val validMoves = moves.filterNot(c=>visited.contains(c))
+          val pathMoves = validMoves.filter(m=>grid(m))
+          walk(
+            tail++pathMoves,
+            visited ++ validMoves.map(m=>(m,grid(m))),
+            boundary.update(validMoves,grid))
         }
       }
     }
 
-    val result = walk(firstMove.initial, firstMove.visited,Boundary(x,y,x,y,grid.size))
-    List(result._2.size,result._1.top,result._1.left,result._1.bottom,result._1.right)
+    val result = firstMoveOpt.fold((new Boundary(Coord(-1,-1)),-1))(fm=>
+      walk(List(fm.initial), fm.visited,fm.boundary))
+
+
+    List(result._2,result._1.top,result._1.left,result._1.bottom,result._1.right)
   }
 }
 
-case class Point(index: Int, valid: Boolean)
+case class Coord(y: Int, x: Int)
 
-case class Boundary(left: Int, top: Int, right: Int, bottom: Int, size: Int) {
-  def inside(n: Int): Boolean = {
+case class Boundary(left: Int, top: Int, right: Int, bottom: Int) {
+  def this(coord: Coord) = this(coord.x, coord.y, coord.x, coord.y)
+  def this() = this(Integer.MAX_VALUE,Integer.MAX_VALUE,-1,-1)
+
+/*  def inside(n: Int): Boolean = {
     val y = n/size
     val x = n%size
 
     (x > left && x < right && y > top && y < bottom)
-  }
+  }*/
 
-  def update(left: Option[Point], top: Option[Point],right: Option[Point],bottom: Option[Point]): Boundary = {
-    new Boundary(
-      left.fold(this.left)(p=>if(p.valid)Math.min(p.index%size,this.left)else this.left),
-      top.fold(this.top)(p=>if(p.valid)Math.min(p.index/size,this.top)else this.top),
-      right.fold(this.right)(p=>if(p.valid)Math.max(p.index%size,this.right)else this.right),
-      bottom.fold(this.bottom)(p=>if(p.valid)Math.max(p.index/size,this.bottom)else this.bottom),
-      this.size)
+  def update(coords: List[Coord], grid: Grid): Boundary = {
+    val l = Math.min(left, coords.map(_.x).min)
+    val r = Math.max(right, coords.map(_.x).max)
+    val t = Math.min(top, coords.map(_.y).min)
+    val b = Math.max(bottom, coords.map(_.y).max)
+
+    Boundary(l,t,r,b)
   }
 }
 
 case class Grid(size: Int) {
   val data: Array[Boolean] = new Array(size*size)
 
-  def apply(y: Int, x: Int) = data(y * size + x)
+  def apply(coord: Coord) = data(coord.y * size + coord.x)
   def get(n: Int): Boolean = data(n)
-  def set(y: Int, x: Int) = data(y * size + x) = true
+  def set(coord: Coord) = data(coord.y * size + coord.x) = true
   def set(n: Int): Unit = data(n) = true
 
-  case class FirstMove(initial: List[Int], visited: Map[Int,Boolean])
+  def getCoord(n: Int) = Coord(n/size, n%size)
 
-  def findFirst(): FirstMove = {
+  def left(p: Coord) = Coord(p.y,p.x-1)
+  def right(p: Coord) = Coord(p.y,p.x+1)
+  def down(p: Coord) = Coord(p.y+1,p.x)
+  def up(p: Coord) = Coord(p.y-1,p.x)
+
+  def valid(p: Coord): Boolean =
+    !(p.x < 0 || p.y < 0 || p.x >= size || p.y >= size)
+
+  case class FirstMove(initial: Coord, visited: Map[Coord,Boolean], boundary: Boundary)
+
+  def findFirst(): Option[FirstMove] = {
     val points = scala.util.Random.shuffle(0 to 99)
 
-    val visited = points.takeWhile(p => !data(p)).map((_,false)).toList.toMap
+    val visited = points.takeWhile(p => !data(p)).map(n=>getCoord(n)).map(coord=>(coord,this(coord))).toList.toMap
 
-    if(visited.size==points.size)
-      FirstMove(Nil, visited)
+    if(visited.size==size*size)
+      None
     else
-      FirstMove(List(points(visited.size)), visited)
+      Some(FirstMove(
+        getCoord(points(visited.size)),
+        visited,
+        new Boundary(getCoord(points(visited.size)))
+      ))
   }
 
-  def getNextMoves(n: Int, visited: Map[Int,Boolean], boundary: Boundary): (List[Point],Boundary) = {
-    def nextMove(nextPoint: Int, outOfBounds: Boolean) =
-      if(outOfBounds || visited.contains(nextPoint) /*|| boundary.inside(n)*/)
-        None
-      else
-        Some(Point(nextPoint,data(nextPoint)))
-
-    val y = n/size
-    val x = n%size
-
-    val left = nextMove((y*size)+(x-1),x==0)
-    val up = nextMove((y-1)*size+x,y==0)
-    val right = nextMove((y*size)+(x+1),x==size-1)
-    val down = nextMove((y+1)*size+x,y==size-1)
-
-    (List(left,up,right,down).filterNot(_==None).map(_.get),boundary.update(left,up,right,down))
-  }
+  def getNextMoves(p: Coord): List[Coord] =
+    List(left(p),right(p),up(p),down(p)).filter(valid)
 
   override def toString = {
     val b = new StringBuilder()
@@ -134,7 +133,7 @@ case class Grid(size: Int) {
     for(i<-0 until size) {
       for(j<-0 until size) {
         var k = "0"
-        if(this(i,j))k="1"
+        if(this(Coord(i,j)))k="1"
         b.append(k)
       }
       b.append("\n")
@@ -150,10 +149,10 @@ case object GridGen {
 
     val grid = new Grid(lines.length)
 
-    for (i <- 0 until lines.length) {
-      for (j <- 0 until lines.length) {
+    for (i <- lines.indices) {
+      for (j <- lines.indices) {
         if (lines(i)(j) == '1')
-          grid.set(i, j)
+          grid.set(Coord(i, j))
       }
     }
 
@@ -161,43 +160,17 @@ case object GridGen {
   }
 
   def random(size: Int): Grid = {
-    var current = Math.abs(scala.util.Random.nextInt())%(size*size)
+    val current = Math.abs(scala.util.Random.nextInt())%(size*size)
     val moves = Math.abs(scala.util.Random.nextInt())%(size*size)
-
-    var points: List[Int] = Nil
+    var points: List[Coord] = Nil
+    val grid: Grid = new Grid(size)
 
     for(i<-0 until moves) {
-      current = nextMove(current, size)
-      points = current :: points
+      val nextMoves = grid.getNextMoves(grid.getCoord(current))
+      points = nextMoves(  Math.abs(scala.util.Random.nextInt()) % nextMoves.size  ) :: points
     }
 
-    val grid: Grid = new Grid(size)
-    points.foreach(grid.set(_))
+    points.foreach(coord=>grid.set(coord))
     grid
   }
-
-  def nextMove(n: Int, size: Int): Int = {
-    val y = n/size
-    val x = n%size
-
-    val list = List(
-    (y*size)+(x-1),
-    (y-1)*size+x,
-    (y*size)+(x+1),
-    (y+1)*size+x)
-
-    val k = Math.abs(scala.util.Random.nextInt())%4
-
-    if(k==0 && x==0)
-      n
-    else if(k==1 && y==0)
-      n
-    else if(k==2 && x==size-1)
-      n
-    else if(k==3 &&y==size-1)
-      n
-    else
-      list(k)
-  }
 }
-
