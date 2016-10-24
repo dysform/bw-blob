@@ -4,27 +4,16 @@ import java.io.File
 
 object BlobBounds {
   def main(args: Array[String]): Unit = {
+    val file = new File("src/test/resources/blob2.txt")
+    val grid = GridGen.fromFile(file)
+    val lheuristic = heuristic(grid)
 
-   // val file = new File("src/test/resources/blob1.txt")
+    println("Heuri: " + makeString(lheuristic))
+   }
 
-   // val grid = GridGen.fromFile(file)
-    val size=10
 
-    val grid = GridGen.random(size)
-
-    println("Naive: "+naive(grid))
-
-    var ave = 0
-    for(i<-0 until 100) {
-      val list = breadth(grid)
-      ave+=list.head
-    }
-
-    println("Breadth: "+breadth(grid) + " Average="+ave/100)
-
-    println(grid)
-    //println(GridGen.random(10))
-  }
+  def makeString(list: List[Int]) =
+    "Cells: " + list(0) + " top: " + list(1) + " left: " + list(2) + " bottom: " + list(3) + " right: " + list(4)
 
   def naive(grid: Grid): List[Int] = {
     val b1: Boundary = new Boundary()
@@ -48,13 +37,43 @@ object BlobBounds {
         case Nil =>
           (boundary, visited.size)
         case head :: tail => {
-          val moves = grid.getMoves(head)
-          val validMoves = moves.filterNot(c=>visited.contains(c))
-          val pathMoves = validMoves.filter(m=>grid(m))
+          val moves = grid.moves(head)
+          val validMoves = moves.filterNot(c => visited.contains(c))
+          val pathMoves = validMoves.filter(m => grid(m))
           walk(
-            tail++pathMoves,
-            visited ++ validMoves.map(m=>(m,grid(m))),
-            boundary.update(pathMoves,grid))
+            tail ++ pathMoves,
+            visited ++ validMoves.map(m => (m, grid(m))),
+            boundary.update(List(head), grid))
+        }
+      }
+    }
+
+    val result = firstMoveOpt.fold((new Boundary(Coord(-1,-1)),-1))(fm=>
+      walk(List(fm.initial), fm.visited,fm.boundary))
+
+    List(result._2,result._1.top,result._1.left,result._1.bottom,result._1.right)
+  }
+
+  def heuristic(grid: Grid): List[Int] = {
+    val firstMoveOpt = grid.findFirst()
+
+    def walk(queue: List[Coord], visited: Map[Coord,Boolean], boundary: Boundary): (Boundary,Int) = {
+      queue match {
+        case Nil => {
+            grid.boundaryMove(boundary, visited).fold(
+            (boundary, visited.size))(c=>{
+            walk(List(c), visited.updated(c, true), boundary.update(List(c), grid))
+          })
+        }
+        case head :: tail => {
+         // println(head + " " + boundary+" "+visited.filter(v=>v._2).map(_._1))
+          val moves = grid.moves(head)
+          val validMoves = moves.filterNot(c => visited.contains(c) || boundary.inside(c))
+          val pathMoves = validMoves.filter(m => grid(m))
+          walk(
+            tail ++ pathMoves,
+            visited ++ validMoves.map(m => (m, grid(m))),
+            boundary.update(pathMoves, grid))
         }
       }
     }
@@ -65,6 +84,8 @@ object BlobBounds {
 
     List(result._2,result._1.top,result._1.left,result._1.bottom,result._1.right)
   }
+
+
 }
 
 case class Coord(y: Int, x: Int)
@@ -73,12 +94,8 @@ case class Boundary(left: Int, top: Int, right: Int, bottom: Int) {
   def this(coord: Coord) = this(coord.x, coord.y, coord.x, coord.y)
   def this() = this(Integer.MAX_VALUE,Integer.MAX_VALUE,-1,-1)
 
-/*  def inside(n: Int): Boolean = {
-    val y = n/size
-    val x = n%size
-
-    (x > left && x < right && y > top && y < bottom)
-  }*/
+  def inside(coord: Coord): Boolean =
+    (coord.x >= left && coord.x <= right && coord.y >= top && coord.y <= bottom)
 
   def update(coords: List[Coord], grid: Grid): Boundary = {
     if(coords.isEmpty)
@@ -118,9 +135,10 @@ case class Grid(size: Int) {
   case class FirstMove(initial: Coord, visited: Map[Coord,Boolean], boundary: Boundary)
 
   def findFirst(): Option[FirstMove] = {
-    val points = scala.util.Random.shuffle(0 to 99)
+    //val points = scala.util.Random.shuffle((0 until size*
+    val points = (0 until size*size).toList
 
-    val visited = points.takeWhile(p => !data(p)).map(n=>getCoord(n)).map(coord=>(coord,this(coord))).toList.toMap
+    val visited = points.takeWhile(p => !data(p)).map(n=>getCoord(n)).map(coord=>(coord,this(coord))).toMap
 
     if(visited.size==size*size)
       None
@@ -132,8 +150,24 @@ case class Grid(size: Int) {
       ))
   }
 
-  def getMoves(p: Coord): List[Coord] =
+  def moves(p: Coord): List[Coord] =
     List(left(p),right(p),up(p),down(p)).filter(valid)
+
+  def boundaryMove(boundary: Boundary, visited: Map[Coord,Boolean]): Option[Coord] = {
+    val top = (boundary.left to boundary.right).map(Coord(boundary.top,_))
+    val left = (boundary.top to boundary.bottom).map(Coord(_,boundary.left))
+    val right = (boundary.top to boundary.bottom).map(Coord(_,boundary.right))
+    val bottom = (boundary.left to boundary.right).map(Coord(boundary.bottom,_))
+
+    val all = (top ++ left ++ right ++ bottom).filter(!visited.contains(_))
+
+    val stream = all.toStream.filter(this(_))
+
+    if(!stream.isEmpty)
+      Option(stream.head)
+     else
+      None
+  }
 
   override def toString = {
     val b = new StringBuilder()
@@ -172,14 +206,12 @@ case object GridGen {
     val grid: Grid = new Grid(size)
 
     var current = grid.getCoord(Math.abs(scala.util.Random.nextInt())%(size*size))
-    val numMoves = Math.abs(scala.util.Random.nextInt())%(size*size)
-    var points: List[Coord] = Nil
-
+    val numMoves = Math.abs(scala.util.Random.nextInt())%((size*size))
 
     for(i<-0 until numMoves) {
-      val moves = grid.getMoves(current)
-      val index = Math.abs(scala.util.Random.nextInt()) % moves.size
       grid.set(current)
+      val moves = grid.moves(current)
+      val index = Math.abs(scala.util.Random.nextInt()) % moves.size
       current = moves(index)
     }
 
