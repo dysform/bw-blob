@@ -15,14 +15,9 @@ object BlobBounds {
   }
 }
 
-case class Result(boundary: Boundary, visited: Map[Coord, Boolean], path: List[Coord])  {
+case class Result(boundary: Boundary, reads: Int)  {
   override def toString =
-    List("Reads: ",visited.size,
-      " top: ",boundary.top,
-      " left: " + boundary.left,
-      " bottom: ",boundary.bottom,
-      " right: ",boundary.right).mkString/*,
-    " path:\n",r.path.reverse.mkString("\n")).mkString*/
+    List("Reads: ",reads," ",boundary).mkString
 }
 
 object BlobFinder {
@@ -34,8 +29,7 @@ object BlobFinder {
 
     Result(
       new Boundary().updated(coords.filter(c => grid(c))),
-      coords.map(c => (c, grid(c))).toMap,
-      Nil)
+      coords.size)
   }
 
   def smart(grid: Grid): Result = {
@@ -45,7 +39,7 @@ object BlobFinder {
           val nextMove = grid.boundaryMove(boundary, visited)
           val newVisited = visited++nextMove._2.map(c=>(c,false))
           if(nextMove._1==None)
-            Result(boundary, newVisited, path)
+            Result(boundary, newVisited.size)
           else {
             val c = nextMove._1.get
             search(List(c), visited.updated(c, true), boundary.updated(c), path)
@@ -63,16 +57,16 @@ object BlobFinder {
       }
     }
 
-    grid.findFirst()
-      .fold(Result(new Boundary(Coord(-1, -1)), Map.empty, Nil))(fm =>
+    grid.firstMove()
+      .fold(Result(new Boundary(), 0))(fm =>
       search(List(fm.initial), fm.visited, fm.boundary, Nil))
   }
 }
 
 case class Coord(y: Int, x: Int)
 
-case class Boundary(left: Int, top: Int, right: Int, bottom: Int) {
-  def this(coord: Coord) = this(coord.x, coord.y, coord.x, coord.y)
+case class Boundary(top: Int, left: Int, bottom: Int, right: Int) {
+  def this(coord: Coord) = this(coord.y, coord.x, coord.y, coord.x)
 
   def this() = this(Integer.MAX_VALUE, Integer.MAX_VALUE, -1, -1)
 
@@ -93,9 +87,15 @@ case class Boundary(left: Int, top: Int, right: Int, bottom: Int) {
       val t = Math.min(top, coords.map(_.y).min)
       val b = Math.max(bottom, coords.map(_.y).max)
 
-      Boundary(l, t, r, b)
+      Boundary(t, l, b, r)
     }
   }
+
+  override def toString =
+    List("top: ",top,
+    " left: " + left,
+    " bottom: ",bottom,
+    " right: ",right).mkString
 
   def toStream =
     (left to right).toStream.map(Coord(top, _)) ++
@@ -125,20 +125,17 @@ case class Grid(size: Int) {
 
   case class FirstMove(initial: Coord, visited: Map[Coord, Boolean], boundary: Boundary)
 
-  def findFirst(): Option[FirstMove] = {
-    val points = scala.util.Random.shuffle((0 until size * size).toList)
-    //val points = (0 until size*size).toList
+  def firstMove(): Option[FirstMove] = {
+    val points = scala.util.Random.shuffle((0 until size * size).toList).map(coord(_))
+    //val points = (0 until size*size).toList.map(coord(_))
 
-    val visited = points.takeWhile(p => !data(p)).map(n => coord(n)).map(coord => (coord, this (coord))).toMap
+    val visited = points.takeWhile(!this(_)).map(co=>(co,this(co))).toMap
+    val c = points(visited.size)
 
     if (visited.size == size * size)
       None
     else
-      Some(FirstMove(
-        coord(points(visited.size)),
-        visited,
-        new Boundary(coord(points(visited.size)))
-      ))
+      Some(FirstMove(c,visited.updated(c,true),new Boundary(points(visited.size))))
   }
 
   def moves(p: Coord): List[Coord] =
@@ -164,17 +161,16 @@ case class Grid(size: Int) {
 }
 
 object GridGen {
-  def fromFile(file: File): Grid = {
-    val lines = io.Source.fromFile(file).getLines().toList
+  def fromFile(file: File): Grid =
+    fromLines(io.Source.fromFile(file).getLines().toList)
 
+  def fromLines(lines: List[String]): Grid = {
     val grid = Grid(lines.length)
 
-    for (i <- lines.indices) {
-      for (j <- lines.indices) {
+    for (i <- lines.indices)
+      for (j <- lines.indices)
         if (lines(i)(j) == '1')
           grid.set(Coord(i, j))
-      }
-    }
 
     grid
   }
