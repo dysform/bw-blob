@@ -33,22 +33,21 @@ object BlobFinder {
   }
 
   def smart(grid: Grid): Result = {
-    def search(queue: List[Coord], visited: Map[Coord, Boolean], boundary: Boundary, path: List[Coord]): Result = {
+    def search(queue: List[Coord], visited: Set[Coord], boundary: Boundary, path: List[Coord]): Result = {
       queue match {
         case Nil =>
-          val nextMove = grid.boundaryMove(boundary, visited)
-          val newVisited = visited++nextMove._2.map(c=>(c,false))
-          if(nextMove._1==None)
-            Result(boundary, newVisited.size)
-          else {
-            val c = nextMove._1.get
-            search(List(c), visited.updated(c, true), boundary.updated(c), path)
+          val boundaryMove = grid.boundaryMove(boundary, visited)
+          boundaryMove match {
+            case(None,_) =>
+              Result(boundary, boundaryMove._2.size)
+            case(c,newVisited) =>
+              search(List(c.get), boundaryMove._2, boundary.updated(c.get), path)
           }
         case head :: tail =>
           val validMoves = grid.moves(head)
             .filterNot(c => visited.contains(c) || boundary.containsCoord(c))
-          val newVisited = visited ++ validMoves.map(m => (m, grid(m)))
-          val pathMoves = validMoves.filter(m => newVisited(m)) // avoid reading from the grid again
+          val newVisited = visited ++ validMoves
+          val pathMoves = validMoves.filter(m=>grid(m)) // cell read
           search(
             tail ++ pathMoves,
             newVisited,
@@ -112,50 +111,51 @@ case class Grid(size: Int) {
 
   def coord(n: Int) = Coord(n / size, n % size)
 
-  def left(p: Coord) = Coord(p.y, p.x - 1)
-  def right(p: Coord) = Coord(p.y, p.x + 1)
-  def down(p: Coord) = Coord(p.y + 1, p.x)
-  def up(p: Coord) = Coord(p.y - 1, p.x)
-
   def legal(p: Coord): Boolean =
     p.x >= 0 &&
       p.y >= 0 &&
       p.x < size &&
       p.y < size
 
-  case class FirstMove(initial: Coord, visited: Map[Coord, Boolean], boundary: Boundary)
+  case class FirstMove(initial: Coord, visited: Set[Coord], boundary: Boundary)
 
   def firstMove(): Option[FirstMove] = {
-    val points = scala.util.Random.shuffle((0 until size * size).toList).map(coord(_))
+    val points = scala.util.Random.shuffle((0 until size * size).toList).map(coord)
     //val points = (0 until size*size).toList.map(coord(_))
 
-    val visited = points.takeWhile(!this(_)).map(co=>(co,this(co))).toMap
-    val c = points(visited.size)
+    val visited = points.takeWhile(p=> !this(p)) // cell read
 
-    if (visited.size == size * size)
+    if (visited.size==points.size)
       None
-    else
-      Some(FirstMove(c,visited.updated(c,true),new Boundary(points(visited.size))))
+    else {
+      val c = points(visited.size)
+      Some(FirstMove(c, visited.toSet+c, new Boundary(c)))
+    }
   }
 
-  def moves(p: Coord): List[Coord] =
-    List(left(p), right(p), up(p), down(p)).filter(legal)
+  def moves(p: Coord): List[Coord] = {
+    val left = Coord(p.y, p.x - 1)
+    val right = Coord(p.y, p.x + 1)
+    val down = Coord(p.y + 1, p.x)
+    val up = Coord(p.y - 1, p.x)
+    List(left, right, up, down).filter(legal)
+  }
 
-  def boundaryMove(boundary: Boundary, visited: Map[Coord, Boolean]): (Option[Coord],List[Coord]) = {
+  def boundaryMove(boundary: Boundary, visited: Set[Coord]): (Option[Coord],Set[Coord]) = {
     val stream = boundary.toStream.filterNot(visited.contains)
-    val empty = stream.takeWhile(!this(_)).toList
+    val newVisited = stream.takeWhile(!this(_)).toSet // cell reads
 
     if(stream.nonEmpty)
-      (Option(stream.head),empty)
+      (Option(stream.head),visited ++ newVisited + stream.head)
     else
-      (None,empty)
+      (None,visited ++ newVisited)
   }
 
   override def toString = {
     def str(b: Boolean) = if(b) "1" else 0
 
     (0 until size).map(y=>{
-      (0 until size).map(x=>{str(this(Coord(y,x)))}).mkString
+      (0 until size).map(x=>str(this(Coord(y,x)))).mkString
     }).mkString("\n")
   }
 }
