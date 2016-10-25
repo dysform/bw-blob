@@ -9,10 +9,10 @@ object BlobBounds {
     val grid = GridGen.fromFile(file)
 
     val resultSlow = BlobFinder.naive(grid)
-    val resultFast = BlobFinder.smart(grid)
+    val resultSmart = BlobFinder.smart(grid)
 
     println("Naive: " + resultSlow)
-    println("Fast:  " + resultFast)
+    println("Smart:  " + resultSmart)
   }
 }
 
@@ -27,7 +27,7 @@ case class Move(coord: Option[Coord], visited: Set[Coord])
 object BlobFinder {
   def naive(grid: Grid): Result = {
     val coords = {
-      for {i <- 0 until grid.size; j <- 0 until grid.size}
+      for (i <- 0 until grid.size ;j <- 0 until grid.size)
         yield Coord(i, j)
     }.toList
 
@@ -44,12 +44,17 @@ object BlobFinder {
           if (move.coord == None)
             Result(boundary, visited.size + move.visited.size)
           else
-            search(List(move.coord.get), visited ++ move.visited, boundary.updated(move.coord.get), path)
+            search(
+              List(move.coord.get),
+              (visited ++ move.visited) + move.coord.get,
+              boundary.updated(move.coord.get), path)
 
         case head :: tail =>
-          val validMoves = grid.moves(head)
-            .filterNot(c => visited.contains(c) || boundary.contains(c))
-          val pathMoves = validMoves.filter(m => grid(m)) // cell read
+          val validMoves =
+            grid.moves(head)
+            .filterNot(visited.contains(_))
+            .filterNot(boundary.contains(_))
+          val pathMoves = validMoves.filter(grid(_)) // cell read
           search(
             tail ++ pathMoves,
             visited ++ validMoves,
@@ -62,7 +67,7 @@ object BlobFinder {
     if (move.coord == None)
       Result(new Boundary(), move.visited.size)
     else
-      search(List(move.coord.get), move.visited, new Boundary(move.coord.get), Nil)
+      search(List(move.coord.get), move.visited+move.coord.get, new Boundary(move.coord.get), Nil)
   }
 }
 
@@ -76,20 +81,20 @@ case class Boundary(top: Int, left: Int, bottom: Int, right: Int) {
       coord.y >= top &&
       coord.y <= bottom
 
-  def updated(coord: Coord): Boundary = updated(List(coord))
+  def updated(coord: Coord): Boundary = {
+    val l = Math.min(left, coord.x)
+    val r = Math.max(right, coord.x)
+    val t = Math.min(top, coord.y)
+    val b = Math.max(bottom, coord.y)
 
-  def updated(coords: List[Coord]): Boundary = {
-    if (coords.isEmpty)
-      this
-    else {
-      val l = Math.min(left, coords.map(_.x).min)
-      val r = Math.max(right, coords.map(_.x).max)
-      val t = Math.min(top, coords.map(_.y).min)
-      val b = Math.max(bottom, coords.map(_.y).max)
-
-      Boundary(t, l, b, r)
-    }
+    Boundary(t, l, b, r)
   }
+
+  def updated(coords: List[Coord]): Boundary =
+    coords match {
+      case Nil => this
+      case _ => coords.foldLeft(this)((b,c)=>b.updated(c))
+    }
 
   override def toString =
     List("top: ",top,
@@ -107,8 +112,6 @@ case class Boundary(top: Int, left: Int, bottom: Int, right: Int) {
 case class Grid(size: Int, coords: List[Coord]) {
   val data: Array[Boolean] = new Array(size * size)
   coords.foreach(coord=>data(coord.y * size + coord.x) = true)
-
-  //def set(coord: Coord) = data(coord.y * size + coord.x) = true
 
   def apply(coord: Coord) = data(coord.y * size + coord.x)
 
@@ -131,11 +134,7 @@ case class Grid(size: Int, coords: List[Coord]) {
 
   def move(stream: Stream[Coord]) = {
     val visited = stream.takeWhile(!this(_)).toSet // cell reads
-
-    if(stream.size!=visited.size)
-      Move(Option(stream(visited.size)),visited + stream(visited.size))
-    else
-      Move(None,visited)
+    Move(stream.drop(visited.size).headOption,visited)
   }
 
   def moves(p: Coord): List[Coord] = {
@@ -163,8 +162,7 @@ object GridGen {
     val coords = for {i <- lines.indices
                       j <- lines.indices
                       if (lines(i)(j) == '1')
-    }
-      yield (Coord(i, j))
+    } yield (Coord(i, j))
 
     Grid(lines.size, coords.toList)
   }
@@ -174,7 +172,7 @@ object GridGen {
     val current = fake.coord(Math.abs(Random.nextInt()) % (size * size))
     val numMoves = Math.abs(Random.nextInt()) % (size * size)
 
-    def coords(current: List[Coord]): List[Coord] = {
+    def coords(current: List[Coord]): List[Coord] =
       if(numMoves==0)
         Nil
       else if(current.size==numMoves)
@@ -184,8 +182,7 @@ object GridGen {
         val index = Math.abs(Random.nextInt()) % moves.size
         coords(moves(index) :: current)
       }
-    }
 
-    Grid(size,coords(List(current).reverse))
+    Grid(size,coords(List(current)))
   }
 }
