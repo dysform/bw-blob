@@ -93,9 +93,9 @@ case class Boundary(top: Int, left: Int, bottom: Int, right: Int) {
 
   override def toString =
     List("top: ",top,
-    " left: " + left,
-    " bottom: ",bottom,
-    " right: ",right).mkString
+      " left: " + left,
+      " bottom: ",bottom,
+      " right: ",right).mkString
 
   def toStream =
     (left to right).toStream.map(Coord(top, _)) ++
@@ -104,11 +104,13 @@ case class Boundary(top: Int, left: Int, bottom: Int, right: Int) {
       (left to right).toStream.map(Coord(bottom, _))
 }
 
-case class Grid(size: Int) {
+case class Grid(size: Int, coords: List[Coord]) {
   val data: Array[Boolean] = new Array(size * size)
+  coords.foreach(coord=>data(coord.y * size + coord.x) = true)
+
+  //def set(coord: Coord) = data(coord.y * size + coord.x) = true
 
   def apply(coord: Coord) = data(coord.y * size + coord.x)
-  def set(coord: Coord) = data(coord.y * size + coord.x) = true
 
   def coord(n: Int) = Coord(n / size, n % size)
 
@@ -158,28 +160,32 @@ object GridGen {
     fromLines(io.Source.fromFile(file).getLines().toList)
 
   def fromLines(lines: List[String]): Grid = {
-    val grid = Grid(lines.length)
+    val coords = for {i <- lines.indices
+                      j <- lines.indices
+                      if (lines(i)(j) == '1')
+    }
+      yield (Coord(i, j))
 
-    for (i <- lines.indices;j <- lines.indices)
-        if (lines(i)(j) == '1')
-          grid.set(Coord(i, j))
-
-    grid
+    Grid(lines.size, coords.toList)
   }
 
   def random(size: Int): Grid = {
-    val grid: Grid = Grid(size)
-
-    var current = grid.coord(Math.abs(Random.nextInt()) % (size * size))
+    val fake = Grid(size, Nil)
+    val current = fake.coord(Math.abs(Random.nextInt()) % (size * size))
     val numMoves = Math.abs(Random.nextInt()) % (size * size)
 
-    for (i <- 0 until numMoves) {
-      grid.set(current)
-      val moves = grid.moves(current)
-      val index = Math.abs(Random.nextInt()) % moves.size
-      current = moves(index)
+    def coords(current: List[Coord]): List[Coord] = {
+      if(numMoves==0)
+        Nil
+      else if(current.size==numMoves)
+        current
+      else {
+        val moves = fake.moves(current.head)
+        val index = Math.abs(Random.nextInt()) % moves.size
+        coords(moves(index) :: current)
+      }
     }
 
-    grid
+    Grid(size,coords(List(current).reverse))
   }
 }
