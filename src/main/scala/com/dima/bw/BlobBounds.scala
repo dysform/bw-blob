@@ -1,6 +1,7 @@
 package com.dima.bw
 
 import java.io.File
+import scala.util.Random
 
 object BlobBounds {
   def main(args: Array[String]): Unit = {
@@ -20,6 +21,9 @@ case class Result(boundary: Boundary, reads: Int)  {
     List("Reads: ",reads," ",boundary).mkString
 }
 
+case class Coord(y: Int, x: Int)
+case class Move(coord: Option[Coord], visited: Set[Coord])
+
 object BlobFinder {
   def naive(grid: Grid): Result = {
     val coords = {
@@ -36,40 +40,37 @@ object BlobFinder {
     def search(queue: List[Coord], visited: Set[Coord], boundary: Boundary, path: List[Coord]): Result = {
       queue match {
         case Nil =>
-          val boundaryMove = grid.boundaryMove(boundary, visited)
-          boundaryMove match {
-            case(None,_) =>
-              Result(boundary, boundaryMove._2.size)
-            case(c,newVisited) =>
-              search(List(c.get), boundaryMove._2, boundary.updated(c.get), path)
-          }
+          val move = grid.boundaryMove(boundary, visited)
+          if (move.coord == None)
+            Result(boundary, visited.size + move.visited.size)
+          else
+            search(List(move.coord.get), visited ++ move.visited, boundary.updated(move.coord.get), path)
+
         case head :: tail =>
           val validMoves = grid.moves(head)
-            .filterNot(c => visited.contains(c) || boundary.containsCoord(c))
-          val newVisited = visited ++ validMoves
-          val pathMoves = validMoves.filter(m=>grid(m)) // cell read
+            .filterNot(c => visited.contains(c) || boundary.contains(c))
+          val pathMoves = validMoves.filter(m => grid(m)) // cell read
           search(
             tail ++ pathMoves,
-            newVisited,
+            visited ++ validMoves,
             boundary.updated(pathMoves),
             head :: path)
       }
     }
 
-    grid.firstMove()
-      .fold(Result(new Boundary(), 0))(fm =>
-      search(List(fm.initial), fm.visited, fm.boundary, Nil))
+    val move = grid.firstMove()
+    if (move.coord == None)
+      Result(new Boundary(), move.visited.size)
+    else
+      search(List(move.coord.get), move.visited, new Boundary(move.coord.get), Nil)
   }
 }
 
-case class Coord(y: Int, x: Int)
-
 case class Boundary(top: Int, left: Int, bottom: Int, right: Int) {
   def this(coord: Coord) = this(coord.y, coord.x, coord.y, coord.x)
-
   def this() = this(Integer.MAX_VALUE, Integer.MAX_VALUE, -1, -1)
 
-  def containsCoord(coord: Coord): Boolean =
+  def contains(coord: Coord): Boolean =
     coord.x >= left &&
       coord.x <= right &&
       coord.y >= top &&
@@ -117,20 +118,22 @@ case class Grid(size: Int) {
       p.x < size &&
       p.y < size
 
-  case class FirstMove(initial: Coord, visited: Set[Coord], boundary: Boundary)
+  def firstMove(): Move = {
+    val points = Random.shuffle((0 until size * size).toList).map(coord).toStream
+    //val points = (0 until size*size).toList.map(coord(_)).toStream
+    move(points)
+  }
 
-  def firstMove(): Option[FirstMove] = {
-    val points = scala.util.Random.shuffle((0 until size * size).toList).map(coord)
-    //val points = (0 until size*size).toList.map(coord(_))
+  def boundaryMove(boundary: Boundary, visited: Set[Coord]): Move =
+    move(boundary.toStream.filterNot(visited.contains))
 
-    val visited = points.takeWhile(p=> !this(p)) // cell read
+  def move(stream: Stream[Coord]) = {
+    val visited = stream.takeWhile(!this(_)).toSet // cell reads
 
-    if (visited.size==points.size)
-      None
-    else {
-      val c = points(visited.size)
-      Some(FirstMove(c, visited.toSet+c, new Boundary(c)))
-    }
+    if(stream.size!=visited.size)
+      Move(Option(stream(visited.size)),visited + stream(visited.size))
+    else
+      Move(None,visited)
   }
 
   def moves(p: Coord): List[Coord] = {
@@ -139,16 +142,6 @@ case class Grid(size: Int) {
     val down = Coord(p.y + 1, p.x)
     val up = Coord(p.y - 1, p.x)
     List(left, right, up, down).filter(legal)
-  }
-
-  def boundaryMove(boundary: Boundary, visited: Set[Coord]): (Option[Coord],Set[Coord]) = {
-    val stream = boundary.toStream.filterNot(visited.contains)
-    val newVisited = stream.takeWhile(!this(_)).toSet // cell reads
-
-    if(stream.nonEmpty)
-      (Option(stream.head),visited ++ newVisited + stream.head)
-    else
-      (None,visited ++ newVisited)
   }
 
   override def toString = {
@@ -167,8 +160,7 @@ object GridGen {
   def fromLines(lines: List[String]): Grid = {
     val grid = Grid(lines.length)
 
-    for (i <- lines.indices)
-      for (j <- lines.indices)
+    for (i <- lines.indices;j <- lines.indices)
         if (lines(i)(j) == '1')
           grid.set(Coord(i, j))
 
@@ -178,13 +170,13 @@ object GridGen {
   def random(size: Int): Grid = {
     val grid: Grid = Grid(size)
 
-    var current = grid.coord(Math.abs(scala.util.Random.nextInt()) % (size * size))
-    val numMoves = Math.abs(scala.util.Random.nextInt()) % (size * size)
+    var current = grid.coord(Math.abs(Random.nextInt()) % (size * size))
+    val numMoves = Math.abs(Random.nextInt()) % (size * size)
 
     for (i <- 0 until numMoves) {
       grid.set(current)
       val moves = grid.moves(current)
-      val index = Math.abs(scala.util.Random.nextInt()) % moves.size
+      val index = Math.abs(Random.nextInt()) % moves.size
       current = moves(index)
     }
 
